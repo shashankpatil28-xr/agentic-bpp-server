@@ -2,9 +2,8 @@
 from flask import Flask
 import os
 import logging
-# import json # NO LONGER NEEDED
-
-# products_data = [] # NO LONGER NEEDED - remove this line
+import atexit
+from app.db.db_pool_manager import initialize_db_pool, close_db_pool
 
 def create_app(config_class=None):
     app = Flask(__name__)
@@ -29,27 +28,25 @@ def create_app(config_class=None):
                         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     app.logger.info(f"App configured with DEBUG={app.config['DEBUG']} and LOG_LEVEL={app.config['LOG_LEVEL']}")
 
-    # --- REMOVE THIS ENTIRE BLOCK (Dummy Product Data Loading) ---
-    # global products_data
-    # data_file_path = os.path.join(app.root_path, '..', 'data', 'products.json')
-    # try:
-    #     with open(data_file_path, 'r') as f:
-    #         products_data = json.load(f)
-    #     app.logger.info(f"Loaded {len(products_data)} dummy products from {data_file_path}")
-    # except FileNotFoundError:
-    #     app.logger.critical(f"CRITICAL ERROR: Dummy data file not found at {data_file_path}")
-    #     raise
-    # except json.JSONDecodeError as e:
-    #     app.logger.critical(f"CRITICAL ERROR: Invalid JSON in {data_file_path}: {e}")
-    #     raise
-    # except Exception as e:
-    #     app.logger.critical(f"CRITICAL ERROR: Failed to load dummy product data: {e}")
-    #     raise
-    # --- END REMOVAL ---
-
+    # --- Initialize Database Connection Pool ---
+    # Call initialize_db_pool here, passing the app instance to access config and logger
+    try:
+        initialize_db_pool(app)
+        atexit.register(close_db_pool)
+    except Exception as e:
+        app.logger.critical(f"Failed to initialize database pool during app startup: {e}")
+        # Depending on criticality, you might want to exit here
+        # For a web server, a non-functional DB pool means the app is not ready.
+        # raise # Uncomment to make startup fail if DB pool init fails
 
     # --- Register Blueprints ---
     from app.controllers.beckn_controller import beckn_bp
     app.register_blueprint(beckn_bp, url_prefix='/beckn')
 
+    # --- Register app shutdown callback to close the DB pool ---
+    # @app.teardown_appcontext
+    # def teardown_db_pool(exception=None):
+    #     close_db_pool()
+    
+    app.logger.info("Flask application initialized.")
     return app

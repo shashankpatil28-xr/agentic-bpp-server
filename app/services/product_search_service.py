@@ -2,29 +2,24 @@
 import psycopg2
 from psycopg2 import Error
 import google.generativeai as genai
-from pgvector.psycopg2 import register_vector
 import time
-from flask import current_app # Import current_app to access Flask config
+from flask import current_app # Import current_app to access Flask config and logger
+from app.db.db_pool_manager import get_db_connection, put_db_connection
 
-class ProductSearchService:
+class ProductSearchService: 
     def __init__(self):
         # Configure Google AI from Flask app config
         google_api_key = current_app.config.get('GOOGLE_API_KEY')
         if not google_api_key:
+            current_app.logger.critical("GOOGLE_API_KEY not configured in Flask app config.")
             raise ValueError("GOOGLE_API_KEY not configured in Flask app config.")
         genai.configure(api_key=google_api_key)
         self.EMBEDDING_MODEL = "models/text-embedding-004"
 
-        # Database connection details from Flask app config
-        self.DB_HOST = current_app.config.get('DB_HOST')
-        self.DB_PORT = current_app.config.get('DB_PORT')
-        self.DB_NAME = current_app.config.get('DB_NAME')
-        self.DB_USER = current_app.config.get('DB_USER')
-        self.DB_PASSWORD = current_app.config.get('DB_PASSWORD')
-
-        # Basic validation
-        if not all([self.DB_HOST, self.DB_NAME, self.DB_USER, self.DB_PASSWORD, self.EMBEDDING_MODEL]):
-            raise ValueError("Database or Google AI credentials missing in Flask app config.")
+        # Database connection details are no longer directly used here,
+        # but accessed via db_pool_manager, which pulls them from app.config.
+        # Basic validation can be removed here as it's done in initialize_db_pool()
+        current_app.logger.debug("ProductSearchService initialized.")
 
     def get_embedding(self, text: str) -> list[float]:
         """
@@ -66,8 +61,8 @@ class ProductSearchService:
             hard_filters_sql = []
             sql_params = []
             
-            soft_filters_for_embedding = {} # Only soft filters that go into embedding
-            hard_filters_for_debug_print = {} # Only hard filters for clear logging
+            soft_filters_for_embedding = {}
+            hard_filters_for_debug_print = {}
 
             if filters:
                 for key, value in filters.items():
@@ -83,7 +78,6 @@ class ProductSearchService:
                         else:
                             soft_filters_for_embedding[key] = value
             
-            # Append soft filters to the query text for semantic understanding
             if soft_filters_for_embedding:
                 for key, value in soft_filters_for_embedding.items():
                     search_query_text += f" {key}: {value}"
@@ -97,20 +91,15 @@ class ProductSearchService:
 
             current_app.logger.info(f"Query embedding generated. Dimension: {len(query_embedding)}")
 
-            conn_start_time = time.perf_counter()
-            connection = psycopg2.connect(
-                host=self.DB_HOST,
-                port=self.DB_PORT,
-                database=self.DB_NAME,
-                user=self.DB_USER,
-                password=self.DB_PASSWORD
-            )
-            conn_end_time = time.perf_counter()
-            current_app.logger.debug(f"Database connection latency: {(conn_end_time - conn_start_time) * 1000:.2f} ms")
+            # --- Get connection from the pool ---
+            conn_get_start_time = time.perf_counter()
+            connection = get_db_connection() # Use the pool manager function
+            conn_get_end_time = time.perf_counter()
+            current_app.logger.debug(f"Database connection retrieved from pool: {(conn_get_end_time - conn_get_start_time) * 1000:.2f} ms")
 
-            register_vector(connection)
+            # register_vector(connection) # No longer needed here, done by get_db_connection()
             cursor = connection.cursor()
-            current_app.logger.info("Database connection established and pgvector adapter registered.")
+            current_app.logger.debug("Connection retrieved from pool.")
 
             base_sql = f"""
             SELECT
@@ -157,32 +146,30 @@ class ProductSearchService:
             current_app.logger.debug(f"SQL query execution latency: {(query_exec_end_time - query_exec_start_time) * 1000:.2f} ms")
             current_app.logger.info("Search complete.")
 
-            # Format results for Beckn Protocol
             formatted_results = []
             for row in results:
                 (product_id, product_display_name, brand_name, price, master_category,
                  sub_category, article_type, age_group, gender, base_color, usage,
                  display_categories, article_attributes, description, image_url, cosine_distance) = row
                 
-                # Create a structure matching your original product_data
                 formatted_results.append({
                     "id": product_id,
                     "name": product_display_name,
                     "description": description,
                     "brand": brand_name,
-                    "price": float(price), # Ensure price is a float
-                    "currency": "INR", # Assuming INR based on previous data
+                    "price": float(price),
+                    "currency": "INR",
                     "category": master_category,
                     "sub_category": sub_category,
                     "article_type": article_type,
                     "age_group": age_group,
                     "gender": gender,
-                    "color": base_color, # Map base_color to color
+                    "color": base_color,
                     "usage": usage,
                     "display_categories": display_categories,
                     "article_attributes": article_attributes,
                     "image_url": image_url,
-                    "cosine_distance": cosine_distance # For debugging/info, not in Beckn spec
+                    "cosine_distance": cosine_distance
                 })
             
             current_app.logger.info(f"Found {len(formatted_results)} products for criteria: {search_query_text}")
@@ -199,7 +186,7 @@ class ProductSearchService:
             if cursor:
                 cursor.close()
             if connection:
-                connection.close()
-            current_app.logger.info("Database connection closed.")
+                put_db_connection(connection) # Return connection to pool
+                current_app.logger.debug("Database connection returned to pool.")
             search_end_time = time.perf_counter()
             current_app.logger.info(f"Overall search function latency: {(search_end_time - search_start_time) * 1000:.2f} ms")

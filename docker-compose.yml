@@ -4,7 +4,7 @@ version: '3.8'
 services:
   bpp_server:
     build: .
-    container_name: bpp_server_hybrid_search
+    container_name: bpp_server
     ports:
       - "5000:5000"
     environment:
