@@ -1,0 +1,7 @@
+Flask
+python-dotenv
+requests
+gunicorn
+psycopg2-binary  # For PostgreSQL database connectivity
+pgvector       # For handling pgvector types in psycopg2
+google-generativeai # For Google text embedding API

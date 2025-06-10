@@ -1,0 +1,29 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  bpp_server:
+    build: .
+    container_name: bpp_server_hybrid_search
+    ports:
+      - "5000:5000"
+    environment:
+      # Pass all environment variables from .env to the container
+      - FLASK_ENV=${FLASK_ENV}
+      - BPP_ID=${BPP_ID}
+      - BPP_URI=${BPP_URI}
+      - SECRET_KEY=${SECRET_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY} # <-- IMPORTANT: Pass this!
+      - DB_HOST=${DB_HOST}               # <-- IMPORTANT: Pass these!
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - .:/app
+    networks:
+      - bpp_network
+
+networks:
+  bpp_network:
+    driver: bridge
