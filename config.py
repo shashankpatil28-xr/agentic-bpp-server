@@ -9,6 +9,10 @@ class Config:
     # --- Google AI API Key ---
     GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
 
+    # --- Google Generative AI Configuration ---
+    # Default to Google's text-embedding-004 model if not set
+    EMBEDDING_MODEL = os.environ.get('EMBEDDING_MODEL', 'models/text-embedding-004')  # Default to Google's text-embedding-004
+
     # --- Database Credentials ---
     DB_HOST = os.environ.get('DB_HOST')
     DB_PORT = os.environ.get('DB_PORT', 5432) # Default to 5432 if not set

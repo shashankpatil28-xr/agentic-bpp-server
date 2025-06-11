@@ -14,7 +14,7 @@ class ProductSearchService:
             current_app.logger.critical("GOOGLE_API_KEY not configured in Flask app config.")
             raise ValueError("GOOGLE_API_KEY not configured in Flask app config.")
         genai.configure(api_key=google_api_key)
-        self.EMBEDDING_MODEL = "models/text-embedding-004"
+        self.EMBEDDING_MODEL = current_app.config.get('EMBEDDING_MODEL', 'models/text-embedding-004')
 
         # Database connection details are no longer directly used here,
         # but accessed via db_pool_manager, which pulls them from app.config.
@@ -35,7 +35,7 @@ class ProductSearchService:
                 task_type="RETRIEVAL_QUERY"
             )
             embedding_end_time = time.perf_counter()
-            current_app.logger.debug(f"   Embedding generation latency: {(embedding_end_time - embedding_start_time) * 1000:.2f} ms")
+            current_app.logger.debug(f"Embedding generation latency: {(embedding_end_time - embedding_start_time) * 1000:.2f} ms")
             return result['embedding']
         except Exception as e:
             current_app.logger.error(f"Error getting Google embedding for query: {e}")
@@ -110,12 +110,7 @@ class ProductSearchService:
                 master_category,
                 sub_category,
                 article_type,
-                age_group,
-                gender,
-                base_color,
-                usage,
                 display_categories,
-                article_attributes,
                 description,
                 image_url,
                 description_embedding <-> %s::vector AS cosine_distance
