@@ -33,7 +33,7 @@ def initialize_db_pool(app):
                 user=DB_USER,
                 password=DB_PASSWORD
             )
-            app.logger.info("Database connection pool initialized successfully.")
+            app.logger.info("Database connection pool initialized successfully. with host: %s, port: %s, dbname: %s", DB_HOST, DB_PORT, DB_NAME)
         except Exception as e:
             app.logger.critical(f"CRITICAL ERROR: Error initializing database connection pool: {e}", exc_info=True)
             raise # Re-raise the exception to indicate a severe startup failure

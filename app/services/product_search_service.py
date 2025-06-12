@@ -110,7 +110,12 @@ class ProductSearchService:
                 master_category,
                 sub_category,
                 article_type,
+                age_group,
+                gender,
+                base_color,
+                usage,
                 display_categories,
+                article_attributes,
                 description,
                 image_url,
                 description_embedding <-> %s::vector AS cosine_distance
