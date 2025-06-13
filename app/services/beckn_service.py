@@ -12,23 +12,51 @@ class BecknService:
 
         catalog_items = []
         for product in products:
-            catalog_items.append({
-                "id": product.get("id"),
+            # Generate image_url as per requirement: gcs/<product_id>.jpg
+            # ProductSearchService might return an image_url, but the request specifies to generate it.
+            generated_image_url = f"https://storage.mtls.cloud.google.com/retail_images__agenticdemo/images/{product.get('id')}.jpg"
+
+            item_tags = []
+
+            # Brand Name
+            if product.get("brand"):
+                item_tags.append({"code": "brand_name", "list": [{"code": "value", "value": product.get("brand")}]})
+            
+            # Article Type
+            if product.get("article_type"):
+                item_tags.append({"code": "article_type", "list": [{"code": "value", "value": product.get("article_type")}]})
+
+            # Usage
+            if product.get("usage"):
+                item_tags.append({"code": "usage", "list": [{"code": "value", "value": product.get("usage")}]})
+        
+            
+            # Article Attributes (from jsonb, expected as dict)
+            article_attributes = product.get("article_attributes")
+            if isinstance(article_attributes, dict):
+                for attr_key, attr_value in article_attributes.items():
+                    if attr_value is not None: # Ensure value is not None
+                        # Sanitize key for "code" (e.g., spaces/hyphens to underscores, lowercase)
+                        tag_key_sanitized = f"attr_{attr_key.lower().replace(' ', '_').replace('-', '_')}"
+                        item_tags.append({"code": tag_key_sanitized, "list": [{"code": "value", "value": str(attr_value)}]})
+            elif article_attributes: # Log if it's not a dict but has a value
+                current_app.logger.warning(f"article_attributes for product {product.get('id')} is not a dict: {type(article_attributes)}")
+
+
+            catalog_item = {
+
                 "descriptor": {
-                    "name": product.get("name"),
-                    "description": product.get("description")
+                    "name": product.get("name"),  # product_display_name
+                    "long_desc": product.get("description"), # description
+                    "images": [generated_image_url] # generated image_url
                 },
                 "price": {
-                    "currency": product.get("currency"),
-                    "value": str(product.get("price"))
+                    "currency": product.get("currency", "INR"), # price, with default currency
+                    "value": str(product.get("price")) 
                 },
-                "category_id": product.get("category"),
-                "fulfillment_id": "fulfillment1", # Example, usually comes from provider
-                "tags": [ # Example tags, can be more detailed
-                    {"code": "color", "list": [{"code": "name", "value": product.get("color")}]},
-                    {"code": "type", "list": [{"code": "name", "value": product.get("type")}]}
-                ]
-            })
+                "tags": item_tags
+            }
+            catalog_items.append(catalog_item)
 
         return {
             "context": {
@@ -46,10 +74,6 @@ class BecknService:
             },
             "message": {
                 "catalog": {
-                    "bpp/fulfillments": [{
-                        "id": "fulfillment1",
-                        "type": "Delivery"
-                    }],
                     "bpp/descriptor": {
                         "name": "Your E-commerce BPP",
                         "short_desc": "BPP for seller services"
