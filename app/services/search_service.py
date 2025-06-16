@@ -19,45 +19,35 @@ class SearchService:
     def perform_product_search(search_criteria):
         product_search_service = SearchService._get_product_search_service()
         
-        query_text = ""
+        # --- Adapt to the output of beckn_utils.extract_search_criteria ---
+        # 'keywords' will be a list of strings.
+        # 'min_price_val' and 'max_price_val' will be the price constraints.
+
+        keywords_list = search_criteria.get('keywords', [])
+        query_text = " ".join(keywords_list).strip()
+        current_app.logger.info(f"Combined query text from keywords: '{query_text}'")
+
         filters = {}
+        min_price = search_criteria.get('min_price_val')
+        max_price = search_criteria.get('max_price_val')
 
-        # --- Mapping Beckn Search Criteria to Hybrid Search Inputs ---
-        # 1. Extract 'name' as primary query_text
-        if 'name' in search_criteria and search_criteria['name']:
-            query_text = search_criteria['name']
-            current_app.logger.info(f"Extracted primary query text: '{query_text}'")
+        if min_price is not None:
+            try:
+                filters['min_price'] = float(min_price) # ProductSearchService expects 'min_price'
+                current_app.logger.debug(f"Added hard filter: min_price={filters['min_price']}")
+            except ValueError:
+                current_app.logger.warning(f"Invalid min_price_val: {min_price}. Skipping min_price filter.")
+        
+        if max_price is not None:
+            try:
+                filters['max_price'] = float(max_price) # ProductSearchService expects 'max_price'
+                current_app.logger.debug(f"Added hard filter: max_price={filters['max_price']}")
+            except ValueError:
+                current_app.logger.warning(f"Invalid max_price_val: {max_price}. Skipping max_price filter.")
 
-        # 2. Extract other properties as filters (soft or hard)
-        # Assuming Beckn's tags can carry various attributes
-        for key, value in search_criteria.items():
-            if key == 'name': # Already handled as query_text
-                continue
-            
-            # Example: Price range from Beckn intent (if your BAP sends it)
-            # Beckn price range typically comes as a range object, not min/max directly
-            # This is an example of how you might map it if your BAP sends it like this:
-            # message.intent.payment: { "min_amount": "100", "max_amount": "1000" }
-            if key == 'min_price' and value is not None:
-                try:
-                    filters['min_price'] = float(value)
-                    current_app.logger.debug(f"Added hard filter: min_price={filters['min_price']}")
-                except ValueError:
-                    current_app.logger.warning(f"Invalid min_price value: {value}")
-            elif key == 'max_price' and value is not None:
-                try:
-                    filters['max_price'] = float(value)
-                    current_app.logger.debug(f"Added hard filter: max_price={filters['max_price']}")
-                except ValueError:
-                    current_app.logger.warning(f"Invalid max_price value: {value}")
-            
-            # Map other Beckn-like attributes to filters for semantic search
-            # These will be treated as 'soft' filters by ProductSearchService
-            elif key in ['color', 'type', 'brand', 'category', 'master_category', 'sub_category', 'gender', 'age_group']:
-                if value is not None:
-                    filters[key] = value
-                    current_app.logger.debug(f"Added soft filter: {key}={value}")
-            # Add more mappings as per your Beckn spec and database columns
+        # Other attributes like color, brand, type are now part of the `query_text`.
+        # The ProductSearchService.search_products method's logic for `soft_filters_for_embedding`
+        # will not be populated with these from here, which is correct as they are already in `query_text`.
 
         current_app.logger.info(f"Performing hybrid search with query: '{query_text}', filters: {filters}")
         
