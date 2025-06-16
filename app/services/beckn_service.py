@@ -7,8 +7,51 @@ from flask import current_app
 class BecknService:
     @staticmethod
     def generate_on_search_response(products, transaction_id, message_id, context):
-        bpp_id = current_app.config['BPP_ID']
-        bpp_uri = current_app.config['BPP_URI']
+        # Get BPP-specific details from app config
+        bpp_id_config = current_app.config['BPP_ID']
+        bpp_uri_config = current_app.config['BPP_URI']
+
+        # Start with a copy of the original search request's context.
+        # This preserves fields like bap_id, bap_uri, domain, country, city, etc.
+        response_context = context.copy()
+
+        # Override fields specific to this BPP and the 'on_search' action.
+        response_context['action'] = "on_search"
+        response_context['bpp_id'] = bpp_id_config
+        response_context['bpp_uri'] = bpp_uri_config
+        
+        # Ensure the transaction_id from the original request is used.
+        # (It's passed as a parameter and should match context['transaction_id'])
+        response_context['transaction_id'] = transaction_id
+        
+        # Set the new message_id for this on_search response.
+        response_context['message_id'] = message_id
+        
+        # Set a new timestamp for this on_search response.
+        response_context['timestamp'] = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+
+        # Handle the version field: output "version" key.
+        # Priority: original context's "version" -> original context's "core_version" -> default.
+        input_version_val = context.get("version")
+        input_core_version_val = context.get("core_version")
+
+        if input_version_val is not None:
+            response_context['version'] = input_version_val
+        elif input_core_version_val is not None:
+            response_context['version'] = input_core_version_val
+        else:
+            response_context['version'] = "1.2.0" # Default if neither is present
+
+        # Remove 'core_version' key if it was present in the original context and copied,
+        # as we are standardizing on the 'version' key in the output.
+        if 'core_version' in response_context:
+            del response_context['core_version']
+            
+        # Ensure domain, country, city are present (they would have been copied if in original context).
+        # Provide defaults if they were somehow missing from the original context.
+        response_context["domain"] = response_context.get("domain", "e-commerce")
+        response_context["country"] = response_context.get("country", "IND")
+        response_context["city"] = response_context.get("city", "std:080")
 
         catalog_items = []
         for product in products:
@@ -59,19 +102,7 @@ class BecknService:
             catalog_items.append(catalog_item)
 
         return {
-            "context": {
-                "domain": context.get("domain", "e-commerce"),
-                "country": context.get("country", "IND"),
-                "city": context.get("city", "std:080"),
-                "action": "on_search",
-                "core_version": context.get("core_version", "1.2.0"),
-                "bpp_id": bpp_id,
-                "bpp_uri": bpp_uri,
-                "transaction_id": transaction_id,
-                "message_id": message_id,
-                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
-                **context # Merge original context to retain other fields
-            },
+            "context": response_context,
             "message": {
                 "catalog": {
                     "bpp/descriptor": {
@@ -97,7 +128,7 @@ class BecknService:
 
         try:
             current_app.logger.info(f"Attempting to send on_search for transaction {transaction_id} to {bap_uri}")
-            requests.post(bap_uri + '/beckn/on_search', json=response_payload, timeout=10)
+            requests.post(bap_uri + '/on_search', json=response_payload, timeout=10)
             current_app.logger.info(f"Successfully sent on_search response for transaction {transaction_id} to {bap_uri}")
         except requests.exceptions.RequestException as e:
             current_app.logger.error(f"Failed to send on_search response for transaction {transaction_id} to {bap_uri}: {e}")
