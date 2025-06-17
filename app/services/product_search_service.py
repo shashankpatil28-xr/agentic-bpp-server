@@ -100,31 +100,30 @@ class ProductSearchService:
             # register_vector(connection) # No longer needed here, done by get_db_connection()
             cursor = connection.cursor()
             current_app.logger.debug("Connection retrieved from pool.")
-
             base_sql = f"""
-            SELECT
-                product_id,
-                product_display_name,
-                brand_name,
-                price,
-                master_category,
-                sub_category,
-                article_type,
-                age_group,
-                gender,
-                base_color,
-                usage,
-                display_categories,
-                article_attributes,
-                description,
-                image_url,
-                description_embedding <-> %s::vector AS cosine_distance
-            FROM
-                products
-            WHERE
-                description_embedding IS NOT NULL
-            """
-            
+                SELECT
+                    product_id,
+                    product_display_name,
+                    brand_name,
+                    price,
+                    master_category,
+                    sub_category,
+                    article_type,
+                    age_group,
+                    gender,
+                    base_color,
+                    usage,
+                    display_categories,
+                    article_attributes,
+                    description,
+                    image_url,
+                    description_embedding <-> %s::vector AS cosine_distance
+                FROM
+                    products
+                WHERE
+                    description_embedding IS NOT NULL
+                """
+        
             final_sql_params = [query_embedding] + sql_params
 
             if hard_filters_sql:
