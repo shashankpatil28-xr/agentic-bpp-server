@@ -72,16 +72,20 @@ def put_db_connection(conn):
             current_app.logger.debug("Attempted to return a connection, but pool was closed or connection already closed.")
 
 
-def close_db_pool():
+def close_db_pool(app=None):
     """
     Closes all connections in the database pool.
     This should be called when the application is shutting down.
+    Accepts an optional 'app' instance for logging purposes,
+    especially when called from a context where current_app might not be available (e.g., atexit).
     """
     global db_pool
+    logger = app.logger if app else current_app.logger # Fallback, though app should be provided from atexit
+
     if db_pool:
-        current_app.logger.info("Closing database connection pool...")
+        logger.info("Closing database connection pool...")
         db_pool.closeall()
         db_pool = None
-        current_app.logger.info("Database connection pool closed.")
+        logger.info("Database connection pool closed.")
     else:
-        current_app.logger.debug("close_db_pool called, but pool was already None.")
+        logger.debug("close_db_pool called, but pool was already None.")
