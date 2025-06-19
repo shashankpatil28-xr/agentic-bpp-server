@@ -32,7 +32,7 @@ def create_app(config_class=None):
     # Call initialize_db_pool here, passing the app instance to access config and logger
     try:
         initialize_db_pool(app)
-        atexit.register(close_db_pool)
+        atexit.register(close_db_pool, app) # Pass the app instance to the atexit handler
     except Exception as e:
         app.logger.critical(f"Failed to initialize database pool during app startup: {e}")
         # Depending on criticality, you might want to exit here
