@@ -7,9 +7,6 @@ from flask import current_app
 class BecknService:
     @staticmethod
     def generate_on_search_response(products, transaction_id, message_id, context):
-        # Get BPP-specific details from app config
-        bpp_id_config = current_app.config['BPP_ID']
-        bpp_uri_config = current_app.config['BPP_URI']
 
         # Start with a copy of the original search request's context.
         # This preserves fields like bap_id, bap_uri, domain, country, city, etc.
@@ -17,8 +14,8 @@ class BecknService:
 
         # Override fields specific to this BPP and the 'on_search' action.
         response_context['action'] = "on_search"
-        response_context['bpp_id'] = bpp_id_config
-        response_context['bpp_uri'] = bpp_uri_config
+        response_context['bpp_id'] = context.get('bpp_id')
+        response_context['bpp_uri'] = context.get('bpp_uri')
         
         # Ensure the transaction_id from the original request is used.
         # (It's passed as a parameter and should match context['transaction_id'])
