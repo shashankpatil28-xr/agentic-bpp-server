@@ -8,6 +8,8 @@ _pending_requests = {}
 
 def extract_search_criteria(message):
     # Initialize with keys expected by the (potentially updated) SearchService
+    start_time = time.perf_counter()
+    current_app.logger.debug("Starting search criteria extraction.")
     search_criteria = {
         "keywords": [],
         "min_price_val": None,
@@ -16,6 +18,8 @@ def extract_search_criteria(message):
 
     if not message or 'intent' not in message:
         current_app.logger.warning("No 'intent' found in message. Cannot extract search criteria.")
+        end_time = time.perf_counter()
+        current_app.logger.info(f"Search criteria extraction completed in {(end_time - start_time) * 1000:.2f} ms. Criteria: {search_criteria}")
         return search_criteria
 
     intent = message['intent']
@@ -84,7 +88,8 @@ def extract_search_criteria(message):
             except ValueError:
                 current_app.logger.warning(f"Invalid max_amount value: {payment['max_amount']}. Skipping price filter.")
                 
-    current_app.logger.info(f"Extracted search criteria: {search_criteria}")
+    end_time = time.perf_counter()
+    current_app.logger.info(f"Search criteria extraction completed in {(end_time - start_time) * 1000:.2f} ms. Criteria: {search_criteria}")
     return search_criteria
 
 def generate_ack_response(original_context, action, transaction_id, message_id):
@@ -93,8 +98,8 @@ def generate_ack_response(original_context, action, transaction_id, message_id):
 
     # Override fields specific to this BPP and the ACK action.
     response_context['action'] = action # The action for this response (e.g., "on_search")
-    response_context['bpp_id'] = current_app.config['BPP_ID']
-    response_context['bpp_uri'] = current_app.config['BPP_URI']
+    response_context['bpp_id'] = original_context.get('bpp_id') 
+    response_context['bpp_uri'] = original_context.get('bpp_uri') 
     
     # Ensure the transaction_id from the original request is used.
     response_context['transaction_id'] = transaction_id # Should be same as original_context's
@@ -130,9 +135,9 @@ def generate_ack_response(original_context, action, transaction_id, message_id):
         }
     }
 
-def store_pending_request(transaction_id, bap_uri, search_criteria, context):
+def store_pending_request(transaction_id, callback_uri, search_criteria, context):
     _pending_requests[transaction_id] = {
-        "bap_uri": bap_uri,
+        "callback_uri": callback_uri, # Store the URI where the on_search should be sent
         "search_criteria": search_criteria,
         "context": context,
         "status": "pending",

@@ -59,45 +59,16 @@ class BecknService:
             # ProductSearchService might return an image_url, but the request specifies to generate it.
             generated_image_url = f"https://storage.mtls.cloud.google.com/retail_images__agenticdemo/images/{product.get('id')}.jpg"
 
-            item_tags = []
-
-            # Brand Name
-            if product.get("brand"):
-                item_tags.append({"code": "brand_name", "list": [{"code": "value", "value": product.get("brand")}]})
-            
-            # Article Type
-            if product.get("article_type"):
-                item_tags.append({"code": "article_type", "list": [{"code": "value", "value": product.get("article_type")}]})
-
-            # Usage
-            if product.get("usage"):
-                item_tags.append({"code": "usage", "list": [{"code": "value", "value": product.get("usage")}]})
-        
-            
-            # Article Attributes (from jsonb, expected as dict)
-            article_attributes = product.get("article_attributes")
-            if isinstance(article_attributes, dict):
-                for attr_key, attr_value in article_attributes.items():
-                    if attr_value is not None: # Ensure value is not None
-                        # Sanitize key for "code" (e.g., spaces/hyphens to underscores, lowercase)
-                        tag_key_sanitized = f"attr_{attr_key.lower().replace(' ', '_').replace('-', '_')}"
-                        item_tags.append({"code": tag_key_sanitized, "list": [{"code": "value", "value": str(attr_value)}]})
-            elif article_attributes: # Log if it's not a dict but has a value
-                current_app.logger.warning(f"article_attributes for product {product.get('id')} is not a dict: {type(article_attributes)}")
-
-
+            # Construct the simplified catalog item as per new requirements
             catalog_item = {
-
-                "descriptor": {
-                    "name": product.get("name"),  # product_display_name
-                    "long_desc": product.get("description"), # description
-                    "images": [generated_image_url] # generated image_url
-                },
+                "Item_id": product.get("id"),
+                "name": product.get("name"),  # Was previously product.get("name") mapped to descriptor.name
+                "images": [generated_image_url], # Was previously under descriptor.images
                 "price": {
                     "currency": product.get("currency", "INR"), # price, with default currency
                     "value": str(product.get("price")) 
                 },
-                "tags": item_tags
+                "brand_name": product.get("brand") # Directly include brand_name
             }
             catalog_items.append(catalog_item)
 
@@ -121,14 +92,14 @@ class BecknService:
         }
 
     @staticmethod
-    def send_on_search_callback(bap_uri, response_payload, transaction_id):
-        if not bap_uri:
-            current_app.logger.warning(f"No BAP URI provided for transaction {transaction_id}. Cannot send callback.")
+    def send_on_search_callback(callback_uri, response_payload, transaction_id):
+        if not callback_uri:
+            current_app.logger.warning(f"No callback URI provided for transaction {transaction_id}. Cannot send callback.")
             return
 
         try:
-            current_app.logger.info(f"Attempting to send on_search for transaction {transaction_id} to {bap_uri}")
-            requests.post(bap_uri + '/on_search', json=response_payload, timeout=10)
-            current_app.logger.info(f"Successfully sent on_search response for transaction {transaction_id} to {bap_uri}")
+            current_app.logger.info(f"Attempting to send on_search for transaction {transaction_id} to {callback_uri}")
+            requests.post(callback_uri + '/on_search', json=response_payload, timeout=10)
+            current_app.logger.info(f"Successfully sent on_search response for transaction {transaction_id} to {callback_uri}")
         except requests.exceptions.RequestException as e:
-            current_app.logger.error(f"Failed to send on_search response for transaction {transaction_id} to {bap_uri}: {e}")
+            current_app.logger.error(f"Failed to send on_search response for transaction {transaction_id} to {callback_uri}: {e}")

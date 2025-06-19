@@ -56,6 +56,11 @@ class ProductSearchService:
         connection = None
         cursor = None
         search_start_time = time.perf_counter()
+        # Initialize latency variables to ensure they exist for the final log, even if parts of the try block are skipped.
+        embedding_generation_time = 0.0
+        db_connection_time = 0.0
+        db_query_time = 0.0
+
         try:
             search_query_text = query_text
             hard_filters_sql = []
@@ -83,7 +88,10 @@ class ProductSearchService:
                     search_query_text += f" {key}: {value}"
 
             current_app.logger.info(f"Generating embedding for combined query: '{search_query_text}'...")
+            embedding_call_start_time = time.perf_counter()
             query_embedding = self.get_embedding(search_query_text)
+            embedding_call_end_time = time.perf_counter()
+            embedding_generation_time = (embedding_call_end_time - embedding_call_start_time) * 1000 # in ms
 
             if query_embedding is None:
                 current_app.logger.error("Failed to generate embedding for query. Cannot perform search.")
@@ -95,28 +103,18 @@ class ProductSearchService:
             conn_get_start_time = time.perf_counter()
             connection = get_db_connection() # Use the pool manager function
             conn_get_end_time = time.perf_counter()
-            current_app.logger.debug(f"Database connection retrieved from pool: {(conn_get_end_time - conn_get_start_time) * 1000:.2f} ms")
+            db_connection_time = (conn_get_end_time - conn_get_start_time) * 1000 # in ms
+            current_app.logger.debug(f"Database connection retrieved from pool: {db_connection_time:.2f} ms")
 
             # register_vector(connection) # No longer needed here, done by get_db_connection()
             cursor = connection.cursor()
-            current_app.logger.debug("Connection retrieved from pool.")
             base_sql = f"""
                 SELECT
                     product_id,
                     product_display_name,
                     brand_name,
                     price,
-                    master_category,
-                    sub_category,
-                    article_type,
-                    age_group,
-                    gender,
-                    base_color,
-                    usage,
-                    display_categories,
-                    article_attributes,
-                    description,
-                    image_url,
+                    image_url, -- Added image_url to match unpacking
                     description_embedding <-> %s::vector AS cosine_distance
                 FROM
                     products
@@ -142,36 +140,25 @@ class ProductSearchService:
             cursor.execute(base_sql, tuple(final_sql_params))
             results = cursor.fetchall()
             query_exec_end_time = time.perf_counter()
-            current_app.logger.debug(f"SQL query execution latency: {(query_exec_end_time - query_exec_start_time) * 1000:.2f} ms")
+            db_query_time = (query_exec_end_time - query_exec_start_time) * 1000 # in ms
+            current_app.logger.debug(f"SQL query execution latency: {db_query_time:.2f} ms")
             current_app.logger.info("Search complete.")
 
             formatted_results = []
             for row in results:
-                (product_id, product_display_name, brand_name, price, master_category,
-                 sub_category, article_type, age_group, gender, base_color, usage,
-                 display_categories, article_attributes, description, image_url, cosine_distance) = row
+                # Unpack only the necessary columns + image_url
+                (product_id, product_display_name, brand_name, price, image_url, cosine_distance) = row
                 
                 formatted_results.append({
                     "id": product_id,
                     "name": product_display_name,
-                    "description": description,
                     "brand": brand_name,
                     "price": float(price),
-                    "currency": "INR",
-                    "category": master_category,
-                    "sub_category": sub_category,
-                    "article_type": article_type,
-                    "age_group": age_group,
-                    "gender": gender,
-                    "color": base_color,
-                    "usage": usage,
-                    "display_categories": display_categories,
-                    "article_attributes": article_attributes,
-                    "image_url": image_url,
-                    "cosine_distance": cosine_distance
+                    "currency": "INR"
+                    # "cosine_distance": cosine_distance # Optional, if needed downstream
                 })
             
-            current_app.logger.info(f"Found {len(formatted_results)} products for criteria: {search_query_text}")
+            current_app.logger.info(f"Found {len(formatted_results)} products for query: '{search_query_text}' with hard filters: {hard_filters_for_debug_print}")
             return formatted_results
 
         except (Exception, Error) as e:
@@ -188,4 +175,10 @@ class ProductSearchService:
                 put_db_connection(connection) # Return connection to pool
                 current_app.logger.debug("Database connection returned to pool.")
             search_end_time = time.perf_counter()
-            current_app.logger.info(f"Overall search function latency: {(search_end_time - search_start_time) * 1000:.2f} ms")
+            overall_search_latency_ms = (search_end_time - search_start_time) * 1000
+            current_app.logger.info(f"Overall search function latency: {overall_search_latency_ms:.2f} ms")
+            current_app.logger.info(
+                f"Search Latency Breakdown - Embedding: {embedding_generation_time:.2f} ms, "
+                f"DB Connect: {db_connection_time:.2f} ms, "
+                f"DB Query: {db_query_time:.2f} ms"
+            )
