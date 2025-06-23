@@ -182,3 +182,101 @@ class ProductSearchService:
                 f"DB Connect: {db_connection_time:.2f} ms, "
                 f"DB Query: {db_query_time:.2f} ms"
             )
+
+    def select_products(self, product_id: str):
+        """
+        Retrieves a single product's details by its product_id.
+
+        Args:
+            product_id (str): The unique identifier of the product.
+
+        Returns:
+            dict: A dictionary containing the product's details, or None if not found.
+        """
+        connection = None
+        cursor = None
+        select_start_time = time.perf_counter()
+        db_connection_time = 0.0
+        db_query_time = 0.0
+
+        try:
+            current_app.logger.info(f"Attempting to select product with ID: {product_id}")
+
+            conn_get_start_time = time.perf_counter()
+            connection = get_db_connection()
+            conn_get_end_time = time.perf_counter()
+            db_connection_time = (conn_get_end_time - conn_get_start_time) * 1000
+            current_app.logger.debug(f"Database connection retrieved from pool: {db_connection_time:.2f} ms")
+
+            cursor = connection.cursor()
+            sql_query = """
+                SELECT
+                    product_id,
+                    product_display_name,
+                    brand_name,
+                    price,
+                    master_category,
+                    sub_category,
+                    article_type,
+                    age_group,
+                    gender,
+                    base_color,
+                    usage,
+                    display_categories,
+                    article_attributes,
+                    description,
+                    image_url
+                FROM
+                    products
+                WHERE
+                    product_id = %s;
+            """
+            query_exec_start_time = time.perf_counter()
+            cursor.execute(sql_query, (product_id,))
+            row = cursor.fetchone()
+            query_exec_end_time = time.perf_counter()
+            db_query_time = (query_exec_end_time - query_exec_start_time) * 1000
+            current_app.logger.debug(f"SQL select query execution latency: {db_query_time:.2f} ms")
+
+            if row:
+                # Map row to a dictionary, ensuring column names match Beckn expected fields
+                # The order of columns in the SELECT statement must match this unpacking
+                (p_id, p_name, brand, price, master_cat, sub_cat, article_type, age_group, gender, base_color, usage, display_cats, article_attrs, desc, img_url) = row
+                return {
+                    "id": p_id,
+                    "name": p_name,
+                    "brand": brand,
+                    "price": float(price),
+                    "currency": "INR", # Assuming INR as default
+                    "master_category": master_cat,
+                    "sub_category": sub_cat,
+                    "article_type": article_type,
+                    "age_group": age_group,
+                    "gender": gender,
+                    "base_color": base_color,
+                    "usage": usage,
+                    "display_categories": display_cats,
+                    "article_attributes": article_attrs,
+                    "description": desc,
+                    "image_url": img_url
+                }
+            else:
+                current_app.logger.warning(f"Product with ID {product_id} not found.")
+                return None
+
+        except (Exception, Error) as e:
+            current_app.logger.critical(f"An error occurred during product selection for ID {product_id}: {e}", exc_info=True)
+            return None
+        finally:
+            if cursor:
+                cursor.close()
+            if connection:
+                put_db_connection(connection)
+                current_app.logger.debug("Database connection returned to pool after select.")
+            select_end_time = time.perf_counter()
+            overall_select_latency_ms = (select_end_time - select_start_time) * 1000
+            current_app.logger.info(f"Overall select function latency: {overall_select_latency_ms:.2f} ms")
+            current_app.logger.info(
+                f"Select Latency Breakdown - DB Connect: {db_connection_time:.2f} ms, "
+                f"DB Query: {db_query_time:.2f} ms"
+            )
