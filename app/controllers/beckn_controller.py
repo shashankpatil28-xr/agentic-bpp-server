@@ -1,5 +1,5 @@
 # app/controllers/beckn_controller.py
-from flask import Blueprint, request, jsonify, current_app # <--- current_app is needed here
+from flask import Blueprint, request, jsonify, current_app 
 import time # Added for timing
 import uuid
 import json
@@ -22,6 +22,12 @@ def search():
     transaction_id = context.get('transaction_id', str(uuid.uuid4()))
     message_id = context.get('message_id', str(uuid.uuid4()))
     callback_uri = context.get('bpp_uri') # URI where the on_search response should be sent
+
+    # Transform the callback URI path from '/receiver' to '/caller' for testing purposes
+    if callback_uri and '/receiver' in callback_uri:
+        original_uri = callback_uri
+        callback_uri = original_uri.replace('/receiver', '/caller')
+        current_app.logger.info(f"Transformed callback URI from '{original_uri}' to '{callback_uri}'.")
 
     search_criteria = extract_search_criteria(message)
 
