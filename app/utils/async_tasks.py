@@ -7,7 +7,7 @@ from app.utils.beckn_utils import update_pending_request_with_result
 
 # --- IMPORTANT CHANGE HERE ---
 # The function now accepts the 'app_instance'
-def _perform_search_and_callback(app_instance, transaction_id, message_id, search_criteria, context, bap_uri):
+def _perform_search_and_callback(app_instance, transaction_id, message_id, search_criteria, context, callback_uri):
     # Use the passed app_instance to push the context
     with app_instance.app_context():
         try:
@@ -17,16 +17,16 @@ def _perform_search_and_callback(app_instance, transaction_id, message_id, searc
 
             update_pending_request_with_result(transaction_id, beckn_response)
 
-            BecknService.send_on_search_callback(bap_uri, beckn_response, transaction_id)
+            BecknService.send_on_search_callback(callback_uri, beckn_response, transaction_id)
 
             app_instance.logger.info(f"Async task: Completed for transaction_id: {transaction_id}")
         except Exception as e:
             app_instance.logger.error(f"Async task: Error during search for transaction_id {transaction_id}: {e}")
 
 # The run_async_task also needs to accept 'app_instance'
-def run_async_task(app_instance, transaction_id, message_id, search_criteria, context, bap_uri):
+def run_async_task(app_instance, transaction_id, message_id, search_criteria, context, callback_uri):
     thread = threading.Thread(target=_perform_search_and_callback,
-                              args=(app_instance, transaction_id, message_id, search_criteria, context, bap_uri))
+                              args=(app_instance, transaction_id, message_id, search_criteria, context, callback_uri))
     thread.start()
     app_instance.logger.info(f"Async task for transaction {transaction_id} started in background.")
 # --- END CHANGE ---

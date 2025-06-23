@@ -37,7 +37,7 @@ def create_app(config_class=None):
         app.logger.critical(f"Failed to initialize database pool during app startup: {e}")
         # Depending on criticality, you might want to exit here
         # For a web server, a non-functional DB pool means the app is not ready.
-        # raise # Uncomment to make startup fail if DB pool init fails
+        raise # Make startup fail if DB pool init fails
 
     # --- Register Blueprints ---
     from app.controllers.beckn_controller import beckn_bp

@@ -3,8 +3,6 @@ import os
 
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'your_default_secret_key_semantic_search'
-    BPP_ID = os.environ.get('BPP_ID')
-    BPP_URI = os.environ.get('BPP_URI')
 
     # --- Google AI API Key ---
     GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')

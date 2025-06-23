@@ -2,14 +2,14 @@
 import time
 import uuid
 import requests
+from urllib.parse import urlparse # Added for audience determination
 from flask import current_app
+# Import the function from your auth module
+from app.auth import make_authenticated_request # Ensure this path is correct
 
 class BecknService:
     @staticmethod
     def generate_on_search_response(products, transaction_id, message_id, context):
-        # Get BPP-specific details from app config
-        bpp_id_config = current_app.config['BPP_ID']
-        bpp_uri_config = current_app.config['BPP_URI']
 
         # Start with a copy of the original search request's context.
         # This preserves fields like bap_id, bap_uri, domain, country, city, etc.
@@ -17,8 +17,8 @@ class BecknService:
 
         # Override fields specific to this BPP and the 'on_search' action.
         response_context['action'] = "on_search"
-        response_context['bpp_id'] = bpp_id_config
-        response_context['bpp_uri'] = bpp_uri_config
+        response_context['bpp_id'] = context.get('bpp_id')
+        response_context['bpp_uri'] = context.get('bpp_uri')
         
         # Ensure the transaction_id from the original request is used.
         # (It's passed as a parameter and should match context['transaction_id'])
@@ -40,7 +40,7 @@ class BecknService:
         elif input_core_version_val is not None:
             response_context['version'] = input_core_version_val
         else:
-            response_context['version'] = "1.2.0" # Default if neither is present
+            response_context['version'] = "2.0.0" # Default if neither is present
 
         # Remove 'core_version' key if it was present in the original context and copied,
         # as we are standardizing on the 'version' key in the output.
@@ -59,45 +59,16 @@ class BecknService:
             # ProductSearchService might return an image_url, but the request specifies to generate it.
             generated_image_url = f"https://storage.mtls.cloud.google.com/retail_images__agenticdemo/images/{product.get('id')}.jpg"
 
-            item_tags = []
-
-            # Brand Name
-            if product.get("brand"):
-                item_tags.append({"code": "brand_name", "list": [{"code": "value", "value": product.get("brand")}]})
-            
-            # Article Type
-            if product.get("article_type"):
-                item_tags.append({"code": "article_type", "list": [{"code": "value", "value": product.get("article_type")}]})
-
-            # Usage
-            if product.get("usage"):
-                item_tags.append({"code": "usage", "list": [{"code": "value", "value": product.get("usage")}]})
-        
-            
-            # Article Attributes (from jsonb, expected as dict)
-            article_attributes = product.get("article_attributes")
-            if isinstance(article_attributes, dict):
-                for attr_key, attr_value in article_attributes.items():
-                    if attr_value is not None: # Ensure value is not None
-                        # Sanitize key for "code" (e.g., spaces/hyphens to underscores, lowercase)
-                        tag_key_sanitized = f"attr_{attr_key.lower().replace(' ', '_').replace('-', '_')}"
-                        item_tags.append({"code": tag_key_sanitized, "list": [{"code": "value", "value": str(attr_value)}]})
-            elif article_attributes: # Log if it's not a dict but has a value
-                current_app.logger.warning(f"article_attributes for product {product.get('id')} is not a dict: {type(article_attributes)}")
-
-
+            # Construct the simplified catalog item as per new requirements
             catalog_item = {
-
-                "descriptor": {
-                    "name": product.get("name"),  # product_display_name
-                    "long_desc": product.get("description"), # description
-                    "images": [generated_image_url] # generated image_url
-                },
+                "Item_id": product.get("id"),
+                "name": product.get("name"),  # Was previously product.get("name") mapped to descriptor.name
+                "images": [generated_image_url], # Was previously under descriptor.images
                 "price": {
                     "currency": product.get("currency", "INR"), # price, with default currency
                     "value": str(product.get("price")) 
                 },
-                "tags": item_tags
+                "brand_name": product.get("brand") # Directly include brand_name
             }
             catalog_items.append(catalog_item)
 
@@ -121,14 +92,50 @@ class BecknService:
         }
 
     @staticmethod
-    def send_on_search_callback(bap_uri, response_payload, transaction_id):
-        if not bap_uri:
-            current_app.logger.warning(f"No BAP URI provided for transaction {transaction_id}. Cannot send callback.")
+    def send_on_search_callback(callback_uri: str, response_payload: dict, transaction_id: str):
+        if not callback_uri:
+            current_app.logger.warning(f"No callback URI provided for transaction {transaction_id}. Cannot send callback.")
+            return
+
+        # Determine the target URL for the request and the audience for the token.
+        # The `callback_uri` from the Beckn context is typically the base URI of the BAP.
+        # The specific action (e.g., /on_search) is appended to this base URI.
+        # The `audience` for the ID token is the canonical base URL of the BAP service.
+
+        if not callback_uri.startswith(('http://', 'https://')):
+            current_app.logger.error(f"Invalid callback_uri scheme for transaction {transaction_id}: {callback_uri}. Must be http or https.")
             return
 
         try:
-            current_app.logger.info(f"Attempting to send on_search for transaction {transaction_id} to {bap_uri}")
-            requests.post(bap_uri + '/on_search', json=response_payload, timeout=10)
-            current_app.logger.info(f"Successfully sent on_search response for transaction {transaction_id} to {bap_uri}")
+            parsed_bap_uri = urlparse(callback_uri)
+            audience_for_token = f"{parsed_bap_uri.scheme}://{parsed_bap_uri.netloc}"
+            
+            # Construct the full target URL by appending '/on_search'
+            # Ensure no double slashes if callback_uri already ends with one.
+            target_url_for_request = parsed_bap_uri._replace(path=parsed_bap_uri.path.rstrip('/') + '/on_search').geturl()
+
+        except Exception as e:
+            current_app.logger.error(f"Failed to parse callback_uri or construct target URL for transaction {transaction_id}: {callback_uri}. Error: {e}", exc_info=True)
+            return
+
+        try:
+            current_app.logger.info(f"Attempting to send authenticated on_search for transaction {transaction_id} to {target_url_for_request} with audience {audience_for_token}")
+
+            response = make_authenticated_request(
+                url=target_url_for_request, # The full URL to POST to
+                method="POST",
+                json_payload=response_payload,
+                audience=audience_for_token, # The audience for the ID token
+                timeout=10
+            )
+            response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+
+            current_app.logger.info(f"Successfully sent on_search response for transaction {transaction_id} to {target_url_for_request}. Status: {response.status_code}")
+        except ConnectionError as e: # From _get_authenticated_session
+            current_app.logger.error(f"Authentication setup failed for callback to {target_url_for_request} (audience: {audience_for_token}): {e}", exc_info=True)
         except requests.exceptions.RequestException as e:
-            current_app.logger.error(f"Failed to send on_search response for transaction {transaction_id} to {bap_uri}: {e}")
+            current_app.logger.error(f"Failed to send on_search response for transaction {transaction_id} to {target_url_for_request}: {e}", exc_info=True)
+        except ValueError as e: # From JSON encoding in make_authenticated_request
+            current_app.logger.error(f"Data encoding error for callback to {target_url_for_request}: {e}", exc_info=True)
+        except Exception as e: # Catch-all for other unexpected errors
+            current_app.logger.error(f"An unexpected error occurred sending on_search to {target_url_for_request}: {e}", exc_info=True)
