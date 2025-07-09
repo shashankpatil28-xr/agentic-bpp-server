@@ -7,18 +7,20 @@ import json # Import json for handling JSON payloads
 from google.auth import default
 from google.auth.transport.requests import AuthorizedSession
 import google.oauth2.id_token # Import for fetching ID tokens
+from cachetools import TTLCache # For caching ID tokens
 import google.auth.transport.requests as google_auth_requests # For the request object for fetch_id_token
 
 # Assuming 'your/package/log' maps to Python's standard logging
 logger = logging.getLogger(__name__)
 
-# You would define a placeholder for StepContext if it's strictly needed for logging
-# For this direct conversion, we'll assume request.environ.get('wsgi.input')
-# provides the necessary context or will be omitted for simplicity of the proxy core.
-
 # The _get_authenticated_session function and _authenticated_sessions_cache
 # were based on a misunderstanding of AuthorizedSession for ID tokens.
 # ID tokens should be fetched per request or cached with their expiry.
+# We will fetch the ID token directly in make_authenticated_request.
+
+# Cache for Google ID tokens. Tokens are valid for 1 hour. We'll cache them for 55 minutes (3300 seconds)
+# to ensure we don't use an expired token.
+id_token_cache = TTLCache(maxsize=100, ttl=3300)
 # We will fetch the ID token directly in make_authenticated_request.
 
 
@@ -98,22 +100,29 @@ def make_authenticated_request(
         auth_header_value = f'Bearer {bearer_token}'
         logger.info(f"Using provided bearer token for authentication to {url}.")
     elif audience:
-        try:
-            # Obtain credentials using Application Default Credentials.
-            credentials, project = default()
-            auth_req = google_auth_requests.Request() # Create a transport request object
-            
-            # Fetch the ID token for the specified audience.
-            fetched_id_token = google.oauth2.id_token.fetch_id_token(auth_req, audience)
-            # WARNING: Logging full tokens is a security risk. Log a truncated version for debugging.
-            # For more intensive debugging, you might temporarily log the full token in a secure, non-production environment.
-            logger.debug(f"DEBUG: Fetched ID token (truncated): {fetched_id_token[:20]}... for audience: {audience}")
-            
-            auth_header_value = f'Bearer {fetched_id_token}'
-            logger.info(f"Successfully fetched ID token for audience: {audience}")
-        except Exception as e:
-            logger.error(f"Failed to fetch ID token for audience {audience}: {e}", exc_info=True)
-            raise ConnectionError(f"Authentication setup failed: Could not get ID token for audience {audience}.") from e
+        # --- Check for a cached token first ---
+        fetched_id_token = id_token_cache.get(audience)
+        if fetched_id_token:
+            logger.info(f"Using cached ID token for audience: {audience}")
+        else:
+            logger.info(f"No cached token for audience: {audience}. Fetching a new one.")
+            try:
+                # Obtain credentials using Application Default Credentials.
+                credentials, project = default()
+                auth_req = google_auth_requests.Request() # Create a transport request object
+                
+                # Fetch the ID token for the specified audience.
+                fetched_id_token = google.oauth2.id_token.fetch_id_token(auth_req, audience)
+                logger.debug(f"DEBUG: Fetched ID token (truncated): {fetched_id_token[:20]}... for audience: {audience}")
+                
+                # Store the newly fetched token in the cache
+                id_token_cache[audience] = fetched_id_token
+                logger.info(f"Successfully fetched and cached new ID token for audience: {audience}")
+            except Exception as e:
+                logger.error(f"Failed to fetch ID token for audience {audience}: {e}", exc_info=True)
+                raise ConnectionError(f"Authentication setup failed: Could not get ID token for audience {audience}.") from e
+        
+        auth_header_value = f'Bearer {fetched_id_token}'
     
     if auth_header_value:
         outgoing_headers['Authorization'] = auth_header_value
