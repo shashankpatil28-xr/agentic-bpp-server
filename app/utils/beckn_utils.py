@@ -135,6 +135,33 @@ def generate_ack_response(original_context, action, transaction_id, message_id):
         }
     }
 
+# --- Select Request Management ---
+_pending_select_requests = {}
+
+def extract_select_criteria(message):
+    """
+    Extracts product_id from the Beckn 'select' message.
+    Expected path: message.order.items[0].id
+    """
+    product_id = None
+    if message and 'order' in message and 'items' in message['order'] and message['order']['items']:
+        # Assuming only one item is selected for simplicity in this context
+        product_id = message['order']['items'][0].get('id')
+    current_app.logger.info(f"Extracted product_id for select: {product_id}")
+    return {"product_id": product_id}
+
+def store_pending_select_request(transaction_id, callback_uri, product_id, context):
+    _pending_select_requests[transaction_id] = {
+        "callback_uri": callback_uri,
+        "product_id": product_id,
+        "context": context,
+        "status": "pending",
+        "timestamp": time.time(),
+        "beckn_response": None
+    }
+    current_app.logger.debug(f"Stored pending select request for transaction_id: {transaction_id}")
+
+
 def store_pending_request(transaction_id, callback_uri, search_criteria, context):
     _pending_requests[transaction_id] = {
         "callback_uri": callback_uri, # Store the URI where the on_search should be sent
@@ -144,6 +171,14 @@ def store_pending_request(transaction_id, callback_uri, search_criteria, context
         "timestamp": time.time(),
         "beckn_response": None
     }
+    current_app.logger.debug(f"Stored pending search request for transaction_id: {transaction_id}")
+
+def get_pending_select_request_results(transaction_id):
+    request_data = _pending_select_requests.get(transaction_id)
+    if request_data and request_data.get("beckn_response"):
+        del _pending_select_requests[transaction_id] # Clean up after retrieval
+        return request_data["beckn_response"]
+    return None
 
 def get_pending_request_results(transaction_id):
     request_data = _pending_requests.get(transaction_id)
@@ -152,10 +187,17 @@ def get_pending_request_results(transaction_id):
         return request_data["beckn_response"]
     return None
 
+def update_pending_select_request_with_result(transaction_id, beckn_response):
+    if transaction_id in _pending_select_requests:
+        _pending_select_requests[transaction_id]["beckn_response"] = beckn_response
+        _pending_select_requests[transaction_id]["status"] = "completed"
+        current_app.logger.debug(f"Updated pending select request with result for transaction_id: {transaction_id}")
+
 def update_pending_request_with_result(transaction_id, beckn_response):
     if transaction_id in _pending_requests:
         _pending_requests[transaction_id]["beckn_response"] = beckn_response
         _pending_requests[transaction_id]["status"] = "completed"
+        current_app.logger.debug(f"Updated pending search request with result for transaction_id: {transaction_id}")
 
 def get_pending_request_details(transaction_id):
     return _pending_requests.get(transaction_id)

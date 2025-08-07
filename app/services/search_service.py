@@ -58,3 +58,12 @@ class SearchService:
             top_n=10 # You can make this configurable
         )
         return products
+
+    @staticmethod
+    def perform_product_select(product_id: str):
+        """
+        Performs a product selection based on a given product ID.
+        """
+        product_search_service = SearchService._get_product_search_service()
+        product_details = product_search_service.select_products(product_id=product_id)
+        return product_details
